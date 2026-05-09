@@ -3,20 +3,22 @@ import os
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from yt_dlp import YoutubeDL
+from aiogram.types import FSInputFile
 
-TOKEN = os.getenv('BOT_TOKEN')
+TOKEN = os.getenv('TOKEN_BOT')
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Fayllarni vaqtincha saqlash uchun papka
 if not os.path.exists("downloads"):
     os.makedirs("downloads")
 
-def download_media(url, mode="video"):
-    """Video yoki Audio yuklab olish funksiyasi"""
+def download_media_sync(url, mode="video"):
+    """Sinxron yuklab olish funksiyasi"""
     options = {
-        'format': 'best' if mode == "video" else 'bestaudio/best',
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best' if mode == "video" else 'bestaudio/best',
         'outtmpl': f'downloads/%(title)s_{mode}.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
     }
     
     if mode == "audio":
@@ -35,30 +37,31 @@ def download_media(url, mode="video"):
 
 @dp.message(CommandStart())
 async def start(message: types.Message):
-    await message.answer("Salom! Instagram yoki YouTube linkini yuboring, men sizga video va musiqasini yuklab beraman.")
+    await message.answer("Salom! Link yuboring, men sizga video va audio qilib beraman.")
 
 @dp.message(F.text.contains("http"))
 async def handle_link(message: types.Message):
     url = message.text
-    status_msg = await message.answer("⏳ Ishlov berilmoqda, kuting...")
+    status_msg = await message.answer("⏳ Ishlov berilmoqda...")
     
+    loop = asyncio.get_event_loop()
     try:
-        # Video yuklash
-        video_file = download_media(url, mode="video")
-        await message.answer_video(types.FSInputFile(video_file), caption="🎬 Video tayyor!")
+        # Videoni asinxron chaqirish
+        video_path = await loop.run_in_executor(None, download_media_sync, url, "video")
+        await message.answer_video(FSInputFile(video_path), caption="🎬 Video tayyor!")
         
-        # Audio yuklash
-        audio_file = download_media(url, mode="audio")
-        await message.answer_audio(types.FSInputFile(audio_file), caption=" Musiqasi tayyor!")
+        # Audioni asinxron chaqirish
+        audio_path = await loop.run_in_executor(None, download_media_sync, url, "audio")
+        await message.answer_audio(FSInputFile(audio_path), caption="🎵 Audio tayyor!")
         
-        # Fayllarni o'chirish (joy egallamasligi uchun)
-        os.remove(video_file)
-        os.remove(audio_file)
+        # O'chirish
+        if os.path.exists(video_path): os.remove(video_path)
+        if os.path.exists(audio_path): os.remove(audio_path)
         await status_msg.delete()
         
     except Exception as e:
-        await message.answer(f"Xatolik yuz berdi: {str(e)}")
-        await status_msg.delete()
+        await message.answer(f"Xatolik: {str(e)}")
+        if status_msg: await status_msg.delete()
 
 async def main():
     await dp.start_polling(bot)
